@@ -1,0 +1,20 @@
+# Environment secrets (keeps your API keys private)
+.env
+*.env
+backend/.env
+frontend/.env
+
+# Python artifacts & virtual environments
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Node modules & Vite build outputs
+node_modules/
+dist/
+.vite/
+
+# Large raw datasets (don't push 100MB+ CSV files to GitHub)
+data/
+*.csv
