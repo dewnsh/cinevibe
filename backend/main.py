@@ -4,7 +4,7 @@ main.py  –  CineVibe Backend | FastAPI Application Entry Point
 Endpoints
 ---------
 GET /api/health                       -> service liveness check
-GET /api/recommend?title=&limit=      -> content-based recommendations
+GET /api/recommend?title=&limit=      -> content-based recommenCORSMiddlewaredations
 GET /api/discover?mood=&type=         -> mood-based TMDB discovery
 GET /api/trailer?id=&type=            -> YouTube trailer key lookup
 
@@ -91,7 +91,7 @@ if frontend_env:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],  # Allows requests from your Vercel URL and any domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
