@@ -1,10 +1,12 @@
 """
 services/recommender.py  –  CineVibe | Content-Based Recommendation Engine
 ===========================================================================
-Loads the Phase-1 training artifacts once at startup and exposes a single
-high-level function:
+Loads the Phase-1 training artifacts once at startup and exposes three
+high-level functions:
 
-    get_recommendations(movie_title, limit=8)  ->  list[dict]
+    get_recommendations(movie_title, limit=8)               ->  dict  (TMDB-enriched)
+    get_ml_recommendations(movie_title, top_n=5)            ->  dict  (pure ML / pickle-only)
+    get_compatibility_recommendations(title1, title2, top_n) -> dict  (dual-user midpoint)
 
 Design notes
 ------------
@@ -16,6 +18,11 @@ Design notes
   calls complete in roughly the time of the slowest single call.
 - Unknown titles fall back to TMDB "popular movies" rather than returning
   an error, giving the UI something useful to display.
+- Dual-User Compatibility: since similarity.pkl stores only ranked IDs
+  (not raw scores), we reconstruct a proxy score vector for each movie
+  using a rank-decay formula (score = 1 / rank), average the two vectors
+  to find the "midpoint" in taste-space, and return the top-N movies
+  closest to that midpoint – excluding both input movies themselves.
 """
 
 import asyncio
@@ -147,6 +154,213 @@ async def get_recommendations(
     results = [d for d in details if d.get("title") != "Unknown" or d.get("id")]
 
     return {"query": matched_title, "found": True, "results": results}
+
+
+def get_ml_recommendations(
+    movie_title: str,
+    top_n: int = 5,
+) -> dict:
+    """
+    Pure ML recommendation lookup powered by the pickle artifacts.
+
+    Unlike ``get_recommendations`` this function performs **no** live TMDB
+    network calls.  Results are assembled entirely from the pre-computed
+    similarity dict and the lightweight movies DataFrame stored in
+    ``movies.pkl``.
+
+    Parameters
+    ----------
+    movie_title : title string, case-insensitive (e.g. 'inception')
+    top_n       : number of recommendations to return (default 5, max 10)
+
+    Returns
+    -------
+    {
+        "query"   : matched title string (or the raw query when not found),
+        "found"   : bool – False when the title has no entry in the dataset,
+        "results" : [
+            {
+                "rank"   : int   (1-based similarity rank),
+                "id"     : int   (TMDB movie ID – use for trailer / poster calls),
+                "title"  : str,
+                "genres" : list[str]  (empty list when unavailable),
+            },
+            …
+        ]
+    }
+    """
+    if _movies_df is None or _similarity is None:
+        raise RuntimeError("Artifacts not loaded. Call load_artifacts() first.")
+
+    top_n = max(1, min(top_n, 10))
+    movie_id = _find_movie_id(movie_title)
+
+    if movie_id is None or movie_id not in _similarity:
+        logger.warning(
+            "[ML] '%s' not found in local dataset – returning not-found response.",
+            movie_title,
+        )
+        return {"query": movie_title, "found": False, "results": []}
+
+    # Resolve the canonical title from the DataFrame
+    row = _movies_df[_movies_df["id"] == movie_id].iloc[0]
+    matched_title: str = row["title"]
+
+    # Pull the top-N recommendation IDs (already ranked by similarity score)
+    rec_ids: list[int] = _similarity[movie_id][:top_n]
+
+    results: list[dict] = []
+    for rank, rec_id in enumerate(rec_ids, start=1):
+        match = _movies_df[_movies_df["id"] == rec_id]
+        if match.empty:
+            # ID exists in similarity dict but was dropped from movies_df — skip
+            logger.debug("[ML] rec_id %d not found in movies_df; skipping.", rec_id)
+            continue
+
+        rec_row = match.iloc[0]
+        raw_genres: str = rec_row.get("genres", "") or ""
+        # genres column is stored as pipe-separated string (e.g. 'Action|Drama')
+        genres: list[str] = [g for g in raw_genres.split("|") if g]
+
+        results.append(
+            {
+                "rank":   rank,
+                "id":     int(rec_row["id"]),
+                "title":  str(rec_row["title"]),
+                "genres": genres,
+            }
+        )
+
+    logger.info(
+        "[ML] '%s' (id=%d) → %d recommendations returned.",
+        matched_title, movie_id, len(results),
+    )
+    return {"query": matched_title, "found": True, "results": results}
+
+
+def get_compatibility_recommendations(
+    title1: str,
+    title2: str,
+    top_n: int = 5,
+) -> dict:
+    """
+    Dual-User Compatibility: find movies that sit at the taste midpoint
+    between two input movies.
+
+    Algorithm
+    ---------
+    Since ``similarity.pkl`` stores only the ranked top-10 recommendation
+    IDs per movie (not raw cosine scores), we reconstruct a *proxy score
+    vector* for each movie using a rank-decay formula::
+
+        proxy_score(rank) = 1 / (rank + 1)
+
+    Movies absent from a movie's top-10 list receive a score of 0.
+
+    The two proxy vectors are averaged element-wise to produce a
+    "midpoint" score for every candidate movie.  The top ``top_n``
+    candidates (excluding the two query movies themselves) are returned,
+    ranked by their midpoint score.
+
+    Parameters
+    ----------
+    title1, title2 : case-insensitive movie title strings
+    top_n          : number of compromise recommendations (default 5, max 10)
+
+    Returns
+    -------
+    {
+        "title1":   canonical title of movie 1,
+        "title2":   canonical title of movie 2,
+        "found1":   bool,
+        "found2":   bool,
+        "results":  [ { rank, id, title, genres, compatibility_score }, … ]
+    }
+    """
+    if _movies_df is None or _similarity is None:
+        raise RuntimeError("Artifacts not loaded. Call load_artifacts() first.")
+
+    top_n = max(1, min(top_n, 10))
+
+    movie_id1 = _find_movie_id(title1)
+    movie_id2 = _find_movie_id(title2)
+
+    found1 = movie_id1 is not None and movie_id1 in _similarity
+    found2 = movie_id2 is not None and movie_id2 in _similarity
+
+    # Resolve canonical titles for display
+    def _canonical(movie_id: int | None, raw: str) -> str:
+        if movie_id is None:
+            return raw
+        rows = _movies_df[_movies_df["id"] == movie_id]
+        return str(rows.iloc[0]["title"]) if not rows.empty else raw
+
+    canon1 = _canonical(movie_id1, title1)
+    canon2 = _canonical(movie_id2, title2)
+
+    if not found1 and not found2:
+        logger.warning(
+            "[Compat] Neither '%s' nor '%s' found in dataset.", title1, title2
+        )
+        return {
+            "title1": canon1, "title2": canon2,
+            "found1": False,   "found2": False,
+            "results": [],
+        }
+
+    # Build proxy score dicts: { candidate_movie_id -> score }
+    def _proxy_scores(mid: int | None) -> dict[int, float]:
+        if mid is None or mid not in _similarity:
+            return {}
+        return {
+            rec_id: 1.0 / (rank + 1)
+            for rank, rec_id in enumerate(_similarity[mid])
+        }
+
+    scores1 = _proxy_scores(movie_id1)
+    scores2 = _proxy_scores(movie_id2)
+
+    # Union of all candidate IDs, excluding the two query movies themselves
+    excluded: set[int] = {mid for mid in (movie_id1, movie_id2) if mid is not None}
+    all_candidates = (set(scores1.keys()) | set(scores2.keys())) - excluded
+
+    # Average the proxy scores → midpoint
+    midpoint: list[tuple[int, float]] = [
+        (cid, (scores1.get(cid, 0.0) + scores2.get(cid, 0.0)) / 2.0)
+        for cid in all_candidates
+    ]
+    midpoint.sort(key=lambda x: x[1], reverse=True)
+    top_candidates = midpoint[:top_n]
+
+    # Build result objects
+    results: list[dict] = []
+    for rank, (rec_id, compat_score) in enumerate(top_candidates, start=1):
+        match = _movies_df[_movies_df["id"] == rec_id]
+        if match.empty:
+            continue
+        rec_row = match.iloc[0]
+        raw_genres: str = rec_row.get("genres", "") or ""
+        genres: list[str] = [g for g in raw_genres.split("|") if g]
+
+        results.append(
+            {
+                "rank":                rank,
+                "id":                  int(rec_row["id"]),
+                "title":               str(rec_row["title"]),
+                "genres":              genres,
+                "compatibility_score": round(compat_score * 100, 1),  # 0–100 scale
+            }
+        )
+
+    logger.info(
+        "[Compat] '%s' × '%s' → %d compromise recommendations.",
+        canon1, canon2, len(results),
+    )
+    return {
+        "title1": canon1, "title2": canon2,
+        "found1": found1,  "found2": found2,
+        "results": results,
+    }
 
 
 async def _fallback_search_or_popular(title: str, limit: int) -> list[dict[str, Any]]:

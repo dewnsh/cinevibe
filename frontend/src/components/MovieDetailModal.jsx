@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { X, Play, Star, Plus, Check, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
-import { fetchTrailerKey } from '../services/api'
+import { fetchTrailerKey, fetchWatchProviders } from '../services/api'
+import MovieRadarChart from './MovieRadarChart'
 
 const PROVIDER_CFG = {
   'Netflix':           { bg: '#e50914', label: 'N' },
@@ -25,15 +26,24 @@ export default function MovieDetailModal({ movie, onClose, inWatchlist, onWatchl
   const [trailerKey, setTrailerKey] = useState(null)
   const [trailerLoading, setTrailerLoading] = useState(true)
   const [imgErr, setImgErr] = useState(false)
+  const [justwatchLink, setJustwatchLink] = useState(movie.providers?.justwatch_link || null)
 
-  // Fetch trailer on mount
+  // Fetch trailer and watch providers on mount
   useEffect(() => {
     setTrailerLoading(true)
     setTrailerKey(null)
     const mediaType = movie.media_type || 'movie'
+
     fetchTrailerKey(movie.id, mediaType).then(t => {
       setTrailerKey(t.trailer_key || null)
       setTrailerLoading(false)
+    })
+
+    // Fetch live watch providers (JustWatch India link)
+    fetchWatchProviders(movie.id, mediaType).then(res => {
+      if (res?.justwatch_link) {
+        setJustwatchLink(res.justwatch_link)
+      }
     })
   }, [movie.id, movie.media_type])
 
@@ -220,20 +230,34 @@ export default function MovieDetailModal({ movie, onClose, inWatchlist, onWatchl
             </div>
           )}
 
+          {/* ── Radar Chart: Visual Explainability ─────────────────────── */}
+          <div className="border-t border-white/[0.07] pt-4">
+            <MovieRadarChart movie={movie} />
+          </div>
+
           {/* CTA buttons */}
           <div className="flex items-center gap-3 pt-1 flex-wrap">
             <button
-              className="btn-brand flex items-center gap-2 px-5 py-2.5 text-sm"
-              onClick={() => window.open(`https://www.netflix.com/search?q=${encodeURIComponent(movie.title)}`, '_blank')}
+              className="btn-brand flex items-center gap-2 px-5 py-2.5 text-sm cursor-pointer"
+              onClick={() => {
+                const targetUrl =
+                  justwatchLink ||
+                  movie.providers?.justwatch_link ||
+                  `https://www.justwatch.com/in/search?q=${encodeURIComponent(movie.title)}`
+                window.open(targetUrl, '_blank', 'noopener,noreferrer')
+              }}
+              title={justwatchLink ? "Open on JustWatch India" : "Search streaming providers on JustWatch"}
             >
               <Play size={15} fill="white" stroke="none" />
-              Watch Now
+              {providers.some(p => p.name?.toLowerCase().includes('netflix'))
+                ? 'Watch on Netflix'
+                : 'Watch Now'}
             </button>
 
             <button
               onClick={() => onWatchlistToggle(movie)}
               className={clsx(
-                'flex items-center gap-2 px-5 py-2.5 text-sm rounded-lg border font-semibold transition-all duration-200',
+                'flex items-center gap-2 px-5 py-2.5 text-sm rounded-lg border font-semibold transition-all duration-200 cursor-pointer',
                 inWatchlist
                   ? 'bg-zinc-700 border-zinc-600 text-white'
                   : 'border-white/20 text-zinc-300 hover:border-white/40 hover:text-white'
@@ -243,15 +267,19 @@ export default function MovieDetailModal({ movie, onClose, inWatchlist, onWatchl
               {inWatchlist ? 'In Watchlist' : 'Add to Watchlist'}
             </button>
 
-            {providers.length > 0 && (
-              <button
-                className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors ml-auto"
-                onClick={() => window.open(`https://www.justwatch.com/in/search?q=${encodeURIComponent(movie.title)}`, '_blank')}
-              >
-                Opens in {providers[0]?.name || 'Streaming'}
-                <ExternalLink size={11} />
-              </button>
-            )}
+            <button
+              className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors ml-auto cursor-pointer"
+              onClick={() => {
+                const targetUrl =
+                  justwatchLink ||
+                  movie.providers?.justwatch_link ||
+                  `https://www.justwatch.com/in/search?q=${encodeURIComponent(movie.title)}`
+                window.open(targetUrl, '_blank', 'noopener,noreferrer')
+              }}
+            >
+              Opens in JustWatch (IN)
+              <ExternalLink size={11} />
+            </button>
           </div>
         </div>
       </div>

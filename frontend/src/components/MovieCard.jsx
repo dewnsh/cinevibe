@@ -1,12 +1,12 @@
 // src/components/MovieCard.jsx
 import { useState } from 'react'
-import { Plus, Check, Star } from 'lucide-react'
+import { Plus, Check, Star, Film } from 'lucide-react'
 import clsx from 'clsx'
 
 const PROVIDER_COLORS = {
-  'Netflix':      { bg: '#e50914', text: 'N' },
-  'Prime Video':  { bg: '#00A8E1', text: 'prime' },
-  'Apple TV':     { bg: '#555', text: 'Ctv+' },
+  'Netflix': { bg: '#e50914', text: 'N' },
+  'Prime Video': { bg: '#00A8E1', text: 'prime' },
+  'Apple TV': { bg: '#555', text: 'Ctv+' },
   'Disney+ Hotstar': { bg: '#1C4EDA', text: 'D+' },
 }
 
@@ -32,9 +32,48 @@ function MatchBadge({ match, className }) {
   )
 }
 
+/** Sleek dark placeholder shown when poster_url is missing or fails to load */
+function PosterPlaceholder({ title }) {
+  const hues = [220, 260, 290, 320, 0, 30, 180, 150]
+  const hue = hues[(title?.charCodeAt(0) ?? 0) % hues.length]
+
+  return (
+    <div
+      className="w-full h-full flex flex-col items-center justify-center gap-3 relative overflow-hidden"
+      style={{
+        background: `linear-gradient(135deg, hsl(${hue},25%,10%) 0%, hsl(${hue},18%,7%) 100%)`,
+      }}
+    >
+      <div
+        className="absolute inset-0 opacity-[0.06]"
+        style={{
+          background: `radial-gradient(circle at 50% 40%, hsl(${hue},60%,55%), transparent 65%)`,
+        }}
+      />
+      <div
+        className="w-12 h-12 rounded-2xl flex items-center justify-center border"
+        style={{
+          background: `hsl(${hue},30%,14%)`,
+          borderColor: `hsl(${hue},30%,22%)`,
+        }}
+      >
+        <Film size={22} style={{ color: `hsl(${hue},50%,55%)` }} strokeWidth={1.5} />
+      </div>
+      <p
+        className="text-center text-[12px] font-semibold leading-snug px-4 max-w-[90%] line-clamp-3"
+        style={{ color: `hsl(${hue},20%,65%)` }}
+      >
+        {title}
+      </p>
+      <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#13161b] to-transparent" />
+    </div>
+  )
+}
+
 export default function MovieCard({ movie, onSelect, inWatchlist, onWatchlistToggle }) {
   const [imgErr, setImgErr] = useState(false)
   const providers = movie.providers?.flatrate || []
+  const showPlaceholder = imgErr || !movie.poster_url
 
   return (
     <article
@@ -43,7 +82,7 @@ export default function MovieCard({ movie, onSelect, inWatchlist, onWatchlistTog
     >
       {/* Poster */}
       <div className="relative aspect-[2/3] overflow-hidden">
-        {!imgErr && movie.poster_url ? (
+        {!showPlaceholder ? (
           <img
             src={movie.poster_url}
             alt={movie.title}
@@ -52,9 +91,7 @@ export default function MovieCard({ movie, onSelect, inWatchlist, onWatchlistTog
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 flex items-center justify-center">
-            <span className="text-zinc-600 text-sm text-center px-4 font-medium">{movie.title}</span>
-          </div>
+          <PosterPlaceholder title={movie.title} />
         )}
 
         {/* Gradient overlay (bottom) */}
@@ -62,10 +99,13 @@ export default function MovieCard({ movie, onSelect, inWatchlist, onWatchlistTog
 
         {/* Top-left: Watchlist button */}
         <button
-          onClick={e => { e.stopPropagation(); onWatchlistToggle(movie) }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onWatchlistToggle(movie)
+          }}
           className={clsx(
             'absolute top-2.5 left-2.5 w-7 h-7 rounded-full flex items-center justify-center',
-            'border transition-all duration-200 opacity-0 group-hover:opacity-100',
+            'border transition-all duration-200 opacity-0 group-hover:opacity-100 cursor-pointer',
             inWatchlist
               ? 'bg-[#e50914] border-[#e50914] text-white'
               : 'bg-black/60 border-white/20 text-white hover:bg-[#e50914] hover:border-[#e50914]'
@@ -111,14 +151,14 @@ export default function MovieCard({ movie, onSelect, inWatchlist, onWatchlistTog
         {/* Genres + streaming badges */}
         <div className="flex items-center justify-between pt-0.5">
           <div className="flex gap-1.5 flex-wrap">
-            {movie.genres.slice(0, 2).map(g => (
+            {movie.genres.slice(0, 2).map((g) => (
               <span key={g} className="text-[11px] text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded">
                 {g}
               </span>
             ))}
           </div>
           <div className="flex items-center gap-1">
-            {providers.slice(0, 2).map(p => (
+            {providers.slice(0, 2).map((p) => (
               <ProviderBadge key={p.name} name={p.name} />
             ))}
           </div>

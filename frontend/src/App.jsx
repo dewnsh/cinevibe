@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { AlertCircle, WifiOff } from 'lucide-react'
+import { AlertCircle, WifiOff, Shuffle, ScanFace } from 'lucide-react'
 import Navbar from './components/Navbar'
 import HeroSearch from './components/HeroSearch'
 import FilterBar from './components/FilterBar'
 import MovieGrid from './components/MovieGrid'
 import MovieDetailModal from './components/MovieDetailModal'
+import CompatibilityMixer from './components/CompatibilityMixer'
+import EmotionScanner from './components/EmotionScanner'
 import { fetchRecommendations, fetchDiscoverMovies } from './services/api'
 
 export default function App() {
@@ -18,6 +20,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [headline, setHeadline] = useState('TRENDING TONIGHT')
   const [subline, setSubline] = useState('Most streamed and critically acclaimed cinema right now')
+  const [showCompatibility, setShowCompatibility] = useState(false)
+  const [showVibeCheck, setShowVibeCheck] = useState(false)
 
   // Error & offline banners
   const [isOffline, setIsOffline] = useState(false)
@@ -116,6 +120,17 @@ export default function App() {
     setActiveMood(moodId)
     loadMood(moodId, mediaType)
   }
+
+  // Emotion lock callback from EmotionScanner
+  const handleEmotionSelect = useCallback(
+    ({ emotion, config }) => {
+      setActiveMood(config.mood)
+      setHeadline(config.headline)
+      setSubline(config.subline)
+      loadMood(config.mood, mediaType)
+    },
+    [loadMood, mediaType]
+  )
 
   // Media type toggle ([Movies | TV Shows])
   const handleMediaTypeChange = (type) => {
@@ -222,6 +237,56 @@ export default function App() {
         {!isWatchlistView && (
           <>
             <HeroSearch onSearch={handleSearch} loading={loading} />
+
+            {/* ── Feature Toggle Buttons (Vibe Check & Compatibility Mixer) ── */}
+            <div className="max-w-7xl mx-auto px-6 mb-3 flex flex-wrap items-center justify-center gap-2.5">
+              <button
+                onClick={() => {
+                  setShowVibeCheck(v => !v)
+                  if (!showVibeCheck) setShowCompatibility(false)
+                }}
+                className={`inline-flex items-center gap-2 px-5 py-2 rounded-full border text-sm font-semibold transition-all cursor-pointer
+                  ${showVibeCheck
+                    ? 'bg-gradient-to-r from-violet-600/30 to-[#e50914]/30 border-violet-500/50 text-white shadow-lg shadow-violet-900/30'
+                    : 'bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:text-white hover:border-white/20'
+                  }`}
+              >
+                <ScanFace size={15} className={showVibeCheck ? 'text-violet-400' : ''} />
+                {showVibeCheck ? 'Hide Vibe Check' : 'AI Vibe Check (Webcam)'}
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowCompatibility(v => !v)
+                  if (!showCompatibility) setShowVibeCheck(false)
+                }}
+                className={`inline-flex items-center gap-2 px-5 py-2 rounded-full border text-sm font-semibold transition-all cursor-pointer
+                  ${showCompatibility
+                    ? 'bg-violet-600/20 border-violet-500/40 text-violet-300'
+                    : 'bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:text-white hover:border-white/20'
+                  }`}
+              >
+                <Shuffle size={14} />
+                {showCompatibility ? 'Hide Compatibility Mixer' : 'Dual-User Compatibility Mixer'}
+              </button>
+            </div>
+
+            {/* ── Emotion Scanner (AI Vibe Check Panel) ──────────────────── */}
+            {showVibeCheck && (
+              <div className="border-y border-violet-500/10 bg-black/40 py-6 px-4 mb-4">
+                <EmotionScanner
+                  onEmotionSelect={handleEmotionSelect}
+                  onClose={() => setShowVibeCheck(false)}
+                />
+              </div>
+            )}
+
+            {/* ── Compatibility Mixer panel ──────────────────────────────── */}
+            {showCompatibility && (
+              <div className="border-y border-violet-500/10 bg-violet-950/10">
+                <CompatibilityMixer />
+              </div>
+            )}
 
             {/* Filter Bar with Mood Pills & OTT Badges */}
             <FilterBar

@@ -1,6 +1,31 @@
 // src/components/MovieGrid.jsx
-import { SortDesc } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { Dices, Loader2 } from 'lucide-react'
 import MovieCard from './MovieCard'
+
+// ── Surprise Me – picks a random title from a curated seed list and calls
+//    /api/recommend-ml to get ML picks, then surfaces one at random. ──────────
+const SURPRISE_SEEDS = [
+  'Inception', 'The Dark Knight', 'Interstellar', 'Parasite', 'The Matrix',
+  'Pulp Fiction', 'Fight Club', 'Forrest Gump', 'Goodfellas', 'The Godfather',
+  'Spirited Away', 'Your Name', 'Whiplash', 'La La Land', 'Arrival',
+  'Mad Max: Fury Road', 'The Revenant', 'Blade Runner 2049', 'Joker', 'Dune',
+]
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '')
+
+async function fetchSurpriseMovie() {
+  const seed = SURPRISE_SEEDS[Math.floor(Math.random() * SURPRISE_SEEDS.length)]
+  const res = await fetch(
+    `${API_BASE}/api/recommend-ml?title=${encodeURIComponent(seed)}&top_n=10`,
+    { signal: AbortSignal.timeout(7000) }
+  )
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  const picks = data.results ?? []
+  if (!picks.length) return null
+  return picks[Math.floor(Math.random() * picks.length)]
+}
 
 function SkeletonCard() {
   return (
@@ -32,21 +57,67 @@ export default function MovieGrid({
   watchlist,
   onWatchlistToggle,
 }) {
+  const [surpriseLoading, setSurpriseLoading] = useState(false)
+  const [surpriseError, setSurpriseError] = useState(null)
+
+  const handleSurpriseMe = useCallback(async () => {
+    setSurpriseLoading(true)
+    setSurpriseError(null)
+    try {
+      const pick = await fetchSurpriseMovie()
+      if (pick) {
+        onSelect({
+          id: pick.id,
+          title: pick.title,
+          overview: '',
+          poster_url: null,
+          backdrop_url: null,
+          vote_average: 0,
+          release_year: null,
+          genres: pick.genres ?? [],
+          match: Math.floor(Math.random() * 15) + 85,
+          hook: 'A surprise pick from your ML engine.',
+          providers: { country: null, justwatch_link: null, flatrate: [], rent: [], buy: [] },
+        })
+      } else {
+        setSurpriseError('No pick found — try again!')
+      }
+    } catch {
+      setSurpriseError('Could not reach backend.')
+    } finally {
+      setSurpriseLoading(false)
+    }
+  }, [onSelect])
+
   return (
     <section className="max-w-7xl mx-auto px-6 pt-6 pb-16">
-
       {/* Section header */}
       <div className="flex items-end justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-white leading-tight">{headline}</h2>
           {subline && <p className="text-zinc-500 text-sm mt-0.5">{subline}</p>}
         </div>
-        <div className="flex items-center gap-2 text-zinc-500 text-sm">
-          <span>Sort by</span>
-          <button className="flex items-center gap-1.5 bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-white hover:bg-white/[0.08] transition-colors">
-            Best match
-            <SortDesc size={14} className="text-zinc-400" />
+
+        {/* Surprise Me button */}
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={handleSurpriseMe}
+            disabled={surpriseLoading}
+            className="flex items-center gap-2 bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-1.5
+              text-sm text-white hover:bg-[#e50914]/10 hover:border-[#e50914]/30 hover:text-[#e50914]
+              transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"
+            title="Let the ML engine pick a random movie for you"
+          >
+            {surpriseLoading ? (
+              <Loader2 size={14} className="animate-spin text-[#e50914]" />
+            ) : (
+              <Dices size={14} className="group-hover:rotate-12 transition-transform duration-200" />
+            )}
+            {surpriseLoading ? 'Picking…' : 'Surprise Me'}
           </button>
+          {surpriseError && (
+            <span className="text-[10px] text-amber-400">{surpriseError}</span>
+          )}
         </div>
       </div>
 
@@ -54,16 +125,15 @@ export default function MovieGrid({
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {loading
           ? Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)
-          : movies.map(movie => (
+          : movies.map((movie) => (
               <MovieCard
                 key={movie.id}
                 movie={movie}
                 onSelect={onSelect}
-                inWatchlist={watchlist.some(w => w.id === movie.id)}
+                inWatchlist={watchlist.some((w) => w.id === movie.id)}
                 onWatchlistToggle={onWatchlistToggle}
               />
-            ))
-        }
+            ))}
       </div>
 
       {/* Empty state */}

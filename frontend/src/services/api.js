@@ -194,7 +194,7 @@ export function normalise(item, index = 0) {
     director:     item.director || null,
     cast:         item.cast || [],
     hook:         item.hook || hooks[index % hooks.length],
-    providers:    item.providers || { flatrate: [], rent: [], buy: [] },
+    providers:    item.providers || { country: null, justwatch_link: null, flatrate: [], rent: [], buy: [] },
   }
 }
 
@@ -292,3 +292,66 @@ export const discoverMovies = (mood, type) =>
 
 export const getTrailer = (id, type) =>
   fetchTrailerKey(id, type)
+
+/**
+ * fetchCompatibility(title1: string, title2: string, topN?: number)
+ * Calls GET /api/compatibility?title1={t1}&title2={t2}&top_n={topN}
+ * Returns { title1, title2, found1, found2, results, isOffline: boolean }
+ */
+export async function fetchCompatibility(title1, title2, topN = 5) {
+  try {
+    const res = await fetch(
+      `${BASE}/compatibility?title1=${encodeURIComponent(title1)}&title2=${encodeURIComponent(title2)}&top_n=${topN}`,
+      { signal: AbortSignal.timeout(9000) }
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return {
+      title1:   data.title1,
+      title2:   data.title2,
+      found1:   data.found1,
+      found2:   data.found2,
+      results:  data.results || [],
+      isOffline: false,
+    }
+  } catch (err) {
+    console.warn('[api] fetchCompatibility: request failed', err)
+    return {
+      title1,
+      title2,
+      found1:    false,
+      found2:    false,
+      results:   [],
+      isOffline: true,
+    }
+  }
+}
+
+/**
+ * fetchWatchProviders(id: number, mediaType?: string)
+ * Hits the TMDB /movie/{id}/watch/providers endpoint (via backend or direct fallback),
+ * and extracts the JustWatch link specifically for India (IN).
+ * Returns { justwatch_link: string | null, providers: object, results: object }
+ */
+export async function fetchWatchProviders(id, mediaType = 'movie') {
+  try {
+    const res = await fetch(
+      `${BASE}/watch-providers?id=${id}&type=${encodeURIComponent(mediaType)}`,
+      { signal: AbortSignal.timeout(7000) }
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return {
+      justwatch_link: data.justwatch_link || data.results?.IN?.link || null,
+      providers: data.providers || null,
+      results: data.results || {},
+    }
+  } catch (err) {
+    console.warn('[api] fetchWatchProviders: request failed', err)
+    return {
+      justwatch_link: null,
+      providers: null,
+      results: {},
+    }
+  }
+}

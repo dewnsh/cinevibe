@@ -1,5 +1,4 @@
 // src/components/FilterBar.jsx
-import { ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 
 const MOOD_CHIPS = [
@@ -53,7 +52,7 @@ export default function FilterBar({ activeMood, setActiveMood, activeOTT, setAct
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-none flex-1 pb-1">
           {MOOD_CHIPS.map((chip) => (
             <button
-              key={chip.key || chip.id + chip.label}
+              key={chip.id}
               onClick={() => setActiveMood(chip.id)}
               className={clsx(
                 'chip shrink-0 cursor-pointer',
@@ -63,11 +62,7 @@ export default function FilterBar({ activeMood, setActiveMood, activeOTT, setAct
               {chip.label}
             </button>
           ))}
-          <button className="chip shrink-0 text-zinc-500">
-            <ChevronRight size={14} />
-          </button>
         </div>
-        <span className="text-zinc-500 text-xs shrink-0 hidden md:block">Explore moods →</span>
       </div>
 
       {/* OTT row */}

@@ -94,7 +94,12 @@ def _poster_url(path: str | None, size: str = "w500") -> str | None:
 def _extract_providers(watch_data: dict) -> dict[str, Any]:
     """
     Pull stream/rent/buy provider lists for the first matching country in
-    PROVIDER_COUNTRIES.  Returns a dict with keys: country, flatrate, rent, buy.
+    PROVIDER_COUNTRIES.  Returns a dict with keys: country, justwatch_link,
+    flatrate, rent, buy.
+
+    The ``justwatch_link`` field is the canonical JustWatch deep-link that
+    TMDB embeds in the watch/providers response for each country.  The
+    frontend uses it to open the exact streaming page for the film.
     """
     results: dict = watch_data.get("results", {})
     for country in PROVIDER_COUNTRIES:
@@ -102,6 +107,8 @@ def _extract_providers(watch_data: dict) -> dict[str, Any]:
             entry = results[country]
             return {
                 "country": country,
+                # Direct JustWatch page for this movie in the matched country
+                "justwatch_link": entry.get("link") or None,
                 "flatrate": [
                     {"name": p["provider_name"], "logo": _poster_url(p.get("logo_path"), "w92")}
                     for p in entry.get("flatrate", [])
@@ -115,7 +122,7 @@ def _extract_providers(watch_data: dict) -> dict[str, Any]:
                     for p in entry.get("buy", [])
                 ],
             }
-    return {"country": None, "flatrate": [], "rent": [], "buy": []}
+    return {"country": None, "justwatch_link": None, "flatrate": [], "rent": [], "buy": []}
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +287,60 @@ async def get_trailer_key(
             return v["key"]
 
     return None
+
+
+async def get_watch_providers(
+    tmdb_id: int,
+    media_type: str = "movie",
+) -> dict[str, Any]:
+    """
+    Fetch raw and processed watch/providers for a movie or TV show.
+    Specifically extracts the JustWatch link for India (IN), with fallbacks.
+    """
+    if media_type not in ("movie", "tv"):
+        media_type = "movie"
+
+    client = _get_client()
+    try:
+        resp = await client.get(f"/{media_type}/{tmdb_id}/watch/providers")
+        resp.raise_for_status()
+        data = resp.json()
+        results: dict = data.get("results", {})
+        
+        # Priority: India (IN)
+        in_entry = results.get("IN", {})
+        justwatch_link = in_entry.get("link") or None
+
+        # Fallback to PROVIDER_COUNTRIES if IN link not found
+        if not justwatch_link:
+            for country in PROVIDER_COUNTRIES:
+                if country in results and results[country].get("link"):
+                    justwatch_link = results[country]["link"]
+                    break
+
+        # Ultimate fallback: first country that has a link
+        if not justwatch_link and results:
+            for _, c_val in results.items():
+                if isinstance(c_val, dict) and c_val.get("link"):
+                    justwatch_link = c_val["link"]
+                    break
+
+        return {
+            "id": tmdb_id,
+            "media_type": media_type,
+            "justwatch_link": justwatch_link,
+            "providers": _extract_providers(data),
+            "results": results,
+        }
+    except Exception as exc:
+        logger.warning("Watch providers fetch failed for %s/%s: %s", media_type, tmdb_id, exc)
+        return {
+            "id": tmdb_id,
+            "media_type": media_type,
+            "justwatch_link": None,
+            "providers": {"country": None, "justwatch_link": None, "flatrate": [], "rent": [], "buy": []},
+            "results": {},
+        }
 
 
 # ---------------------------------------------------------------------------
